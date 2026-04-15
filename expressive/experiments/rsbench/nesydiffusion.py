@@ -2,6 +2,8 @@ import argparse
 import os
 import time
 
+from tqdm.asyncio import tqdm
+
 from expressive.args import RSBenchArguments
 from expressive.experiments.rsbench.datasets import get_dataset
 from expressive.experiments.rsbench.rsbenchmodel import create_rsbench_diffusion
@@ -129,7 +131,7 @@ if __name__ == "__main__":
     )
 
     for epoch in range(0, args.epochs):
-        print(f"Epoch {epoch}")
+        print(f"Epoch {epoch}./{args.epochs}")
         if epoch % args.test_every_epochs == 0:
             start_test_time = time.time()
             stats = eval(val_loader, val_logger, model, device, args)
@@ -141,7 +143,7 @@ if __name__ == "__main__":
                 print(ood_stats)
         
         start_epoch_time = time.time()
-        for i, batch in enumerate(train_loader):
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
             optim.zero_grad()
             images, labels, concepts = batch
             labels_BY = recode_label(labels.to(device), args)

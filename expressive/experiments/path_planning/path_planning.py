@@ -3,6 +3,8 @@ import multiprocessing
 import os
 import time
 
+import tqdm
+
 from expressive.args import PathPlanningArguments
 from expressive.experiments.path_planning.absorbing_path import PathAbsorbing, create_nesy_diffusion
 from expressive.methods.logger import (
@@ -114,9 +116,9 @@ if __name__ == "__main__":
         )
 
     for epoch in range(1, args.epochs + 1):
-        print(f"Epoch {epoch}")
+        print(f"Epoch {epoch}/{args.epochs}")
         start_epoch_time = time.time()
-        for i, batch in enumerate(train_loader):
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
             optim.zero_grad()
             grid, label, costs = batch
 

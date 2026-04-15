@@ -3,6 +3,8 @@ import math
 import os
 import time
 
+from tqdm.asyncio import tqdm
+
 from expressive.util import get_device
 from torch.utils.data import DataLoader
 import torch
@@ -116,11 +118,11 @@ def main():
     os.makedirs(f"models/{run.id}", exist_ok=True)
     for epoch in range(args.epochs):
         print("----------------------------------------")
-        print("NEW EPOCH", epoch)
+        print("NEW EPOCH", epoch, "/", args.epochs)
 
         start_epoch_time = time.time()
 
-        for i, batch in enumerate(train_loader):
+        for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
             optim.zero_grad()
             mn_digits, label, w_labels = batch[: 2 * args.N], batch[-1], batch[2 * args.N : -1]
 
