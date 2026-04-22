@@ -13,7 +13,7 @@ from expressive.methods.logger import (
     TestLogger,
     TrainLogger,
 )
-from expressive.util import get_device
+from expressive.util import EarlyStopping, get_device
 from torch.utils.data import DataLoader
 import torch
 import wandb
@@ -115,6 +115,13 @@ if __name__ == "__main__":
             model.parameters(), lr=args.lr,
         )
 
+    metric_key = f"val/{args.early_stopping_metric}"
+    early_stopper = EarlyStopping(
+        patience=args.early_stopping_patience,
+        min_delta=args.early_stopping_min_delta,
+        mode=args.early_stopping_mode,
+    )
+
     for epoch in range(1, args.epochs + 1):
         print(f"Epoch {epoch}/{args.epochs}")
         start_epoch_time = time.time()
@@ -138,6 +145,18 @@ if __name__ == "__main__":
             start_test_time = time.time()
             stats = eval(val_loader, val_logger, model, device, args)
             print(stats)
+            should_stop = False
+            if early_stopper.enabled:
+                if metric_key in stats:
+                    stop, improved = early_stopper.step(float(stats[metric_key]))
+                    status = "improved" if improved else "not improved"
+                    print(
+                        f"Early stopping monitor {metric_key}={float(stats[metric_key]):.6f} ({status}); "
+                        f"bad_epochs={early_stopper.bad_epochs}/{early_stopper.patience}"
+                    )
+                    should_stop = stop
+                else:
+                    print(f"Early stopping metric '{metric_key}' not found in validation stats; skipping check.")
             test_time = time.time() - start_test_time
             print(f"Test time: {test_time:.2f}s")
 
@@ -147,6 +166,9 @@ if __name__ == "__main__":
                 path = f"models/{run.id}/model_{epoch}.pth"
                 torch.save(model.state_dict(), path)
                 wandb.save(path)
+            if should_stop:
+                print(f"Early stopping triggered at epoch {epoch}.")
+                break
 
 
     test_loader = DataLoader(test, args.batch_size_test, shuffle=True)

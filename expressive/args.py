@@ -18,6 +18,10 @@ class Arguments(Tap):
     test: bool = False
     log_per_epoch: int = 10
     run: int = 0
+    early_stopping_patience: int = 0
+    early_stopping_min_delta: float = 0.0
+    early_stopping_metric: str = "w_acc_avg"
+    early_stopping_mode: str = "max"
 
 
 class AbsArguments(Arguments):

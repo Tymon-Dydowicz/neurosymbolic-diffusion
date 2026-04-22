@@ -5,7 +5,7 @@ import time
 
 from tqdm.asyncio import tqdm
 
-from expressive.util import get_device
+from expressive.util import EarlyStopping, get_device
 from torch.utils.data import DataLoader
 import torch
 import wandb
@@ -114,6 +114,14 @@ def main():
     optim = torch.optim.Adam(
         model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0
     )
+    metric_key = f"val/{args.early_stopping_metric}"
+    early_stopper = EarlyStopping(
+        patience=args.early_stopping_patience,
+        min_delta=args.early_stopping_min_delta,
+        mode=args.early_stopping_mode,
+    )
+    if early_stopper.enabled and args.test:
+        print("Early stopping is enabled but '--test' disables validation; early stopping will be ignored.")
 
     os.makedirs(f"models/{run.id}", exist_ok=True)
     for epoch in range(args.epochs):
@@ -145,16 +153,31 @@ def main():
         print(f"Epoch time: {epoch_time} seconds")
 
         # If val not available, don't test during training
+        should_stop = False
         if epoch % args.test_every_epochs == 0:
             if not args.test:
                 print("----- VALIDATING -----")
-                test(val_loader, val_logger, model, device)
+                stats = test(val_loader, val_logger, model, device)
+                if early_stopper.enabled:
+                    if metric_key in stats:
+                        stop, improved = early_stopper.step(float(stats[metric_key]))
+                        status = "improved" if improved else "not improved"
+                        print(
+                            f"Early stopping monitor {metric_key}={float(stats[metric_key]):.6f} ({status}); "
+                            f"bad_epochs={early_stopper.bad_epochs}/{early_stopper.patience}"
+                        )
+                        should_stop = stop
+                    else:
+                        print(f"Early stopping metric '{metric_key}' not found in validation stats; skipping check.")
                 test_time = time.time() - end_epoch_time
                 print(f"Test time: {test_time} seconds")
             
             print(f"Saving model to {run.id}")
             wandb.save(f"model_{epoch}_{run.id}.pth")
             torch.save(model.state_dict(), f"models/{run.id}/model_{epoch}.pth") 
+            if should_stop:
+                print(f"Early stopping triggered at epoch {epoch}.")
+                break
             
 
     print("----- TESTING -----")

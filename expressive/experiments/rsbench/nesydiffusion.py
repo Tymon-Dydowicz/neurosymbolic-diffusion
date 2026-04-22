@@ -17,7 +17,7 @@ from expressive.methods.logger import (
     TestLogger,
     TrainLogger,
 )
-from expressive.util import compute_ece_sampled, get_device
+from expressive.util import EarlyStopping, compute_ece_sampled, get_device
 from torch.utils.data import DataLoader
 import torch
 import wandb
@@ -130,17 +130,41 @@ if __name__ == "__main__":
         model.parameters(), lr=args.lr, betas=(0.9, 0.999), eps=1e-08, weight_decay=0.0
     )
 
+    metric_key = f"val/{args.early_stopping_metric}"
+    early_stopper = EarlyStopping(
+        patience=args.early_stopping_patience,
+        min_delta=args.early_stopping_min_delta,
+        mode=args.early_stopping_mode,
+    )
+    last_epoch = -1
+
     for epoch in range(0, args.epochs):
+        last_epoch = epoch
         print(f"Epoch {epoch}./{args.epochs}")
         if epoch % args.test_every_epochs == 0:
             start_test_time = time.time()
             stats = eval(val_loader, val_logger, model, device, args)
             print(stats)
+            should_stop = False
+            if early_stopper.enabled:
+                if metric_key in stats:
+                    stop, improved = early_stopper.step(float(stats[metric_key]))
+                    status = "improved" if improved else "not improved"
+                    print(
+                        f"Early stopping monitor {metric_key}={float(stats[metric_key]):.6f} ({status}); "
+                        f"bad_epochs={early_stopper.bad_epochs}/{early_stopper.patience}"
+                    )
+                    should_stop = stop
+                else:
+                    print(f"Early stopping metric '{metric_key}' not found in validation stats; skipping check.")
             test_time = time.time() - start_test_time
             print(f"Test time: {test_time:.2f}s")
             for i, ood_loader in enumerate(ood_loaders):
                 ood_stats = eval(ood_loader, ood_loggers[i], model, device, args)
                 print(ood_stats)
+            if should_stop:
+                print(f"Early stopping triggered at epoch {epoch}.")
+                break
         
         start_epoch_time = time.time()
         for i, batch in tqdm(enumerate(train_loader), total=len(train_loader)):
@@ -166,9 +190,10 @@ if __name__ == "__main__":
 
     if args.save_model:
         print(f"Saving model to {run.id}")
-        wandb.save(f"model_{epoch}_{run.id}.pth")
+        saved_epoch = max(last_epoch, 0)
+        wandb.save(f"model_{saved_epoch}_{run.id}.pth")
         os.makedirs(f"models/{run.id}", exist_ok=True)
-        torch.save(model.state_dict(), f"models/{run.id}/model_{epoch}.pth")
+        torch.save(model.state_dict(), f"models/{run.id}/model_{saved_epoch}.pth")
 
     test_logger = TestLogger(clazz, args, "test")
     stats = eval(test_loader, test_logger, model, device, args)

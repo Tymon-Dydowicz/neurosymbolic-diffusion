@@ -106,6 +106,44 @@ def get_device(args):
     return device
 
 
+class EarlyStopping:
+    def __init__(self, patience: int, min_delta: float = 0.0, mode: str = "max"):
+        if mode not in {"max", "min"}:
+            raise ValueError(f"Unsupported early stopping mode: {mode}")
+        self.patience = max(0, int(patience))
+        self.min_delta = float(min_delta)
+        self.mode = mode
+        self.best_value = None
+        self.bad_epochs = 0
+
+    @property
+    def enabled(self) -> bool:
+        return self.patience > 0
+
+    def step(self, current_value: float) -> tuple[bool, bool]:
+        if not self.enabled:
+            return False, False
+
+        if self.best_value is None:
+            self.best_value = current_value
+            self.bad_epochs = 0
+            return False, True
+
+        if self.mode == "max":
+            improved = current_value > (self.best_value + self.min_delta)
+        else:
+            improved = current_value < (self.best_value - self.min_delta)
+
+        if improved:
+            self.best_value = current_value
+            self.bad_epochs = 0
+            return False, True
+
+        self.bad_epochs += 1
+        should_stop = self.bad_epochs >= self.patience
+        return should_stop, False
+
+
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model: int, dropout: float = 0.1, max_len: int = 5000):
         super().__init__()
