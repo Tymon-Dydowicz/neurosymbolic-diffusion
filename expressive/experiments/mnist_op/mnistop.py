@@ -52,7 +52,7 @@ def test(
         )
         if args.DEBUG:
             break
-    test_logger.push(len(val_loader))
+    return test_logger.push(len(val_loader))
 
 
 args = MNISTAbsorbingArguments(explicit_bool=True).parse_args()
@@ -92,7 +92,7 @@ def main():
             if p.requires_grad:
                 p.register_hook(hook)
 
-    train_size = 60000 if args.test else 50000
+    train_size = args.train_size if args.train_size is not None else (60000 if args.test else 50000)
     val_size = 0 if args.test else 10000
     train_loader, val_loader, test_loader = get_mnist_op_dataloaders(
         count_train=int(train_size / n_operands),

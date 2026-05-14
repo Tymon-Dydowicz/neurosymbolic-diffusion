@@ -115,6 +115,7 @@ class MNISTAbsorbingArguments(AbsArguments, MNISTArguments):
     model: str = "mnist"
     
     epochs: int = 100
+    train_size: int = None
     entropy_weight: float = 0.01
     w_denoise_weight: float = 0.00002
     lr: float = 3e-4

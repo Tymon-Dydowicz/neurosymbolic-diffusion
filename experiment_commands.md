@@ -4,6 +4,11 @@ MNIST Add N=4:
 uv run expressive/experiments/mnist_op/mnistop.py
 ```
 
+MNIST Add N=4 with a smaller training set:
+```
+uv run expressive/experiments/mnist_op/mnistop.py --train_size 20000
+```
+
 MNIST Add N=15:
 ```
 uv run expressive/experiments/mnist_op/mnistop.py --N 15 --epochs 1000

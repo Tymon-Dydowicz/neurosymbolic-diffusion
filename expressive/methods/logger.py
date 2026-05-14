@@ -203,7 +203,7 @@ class TrainLogger(Generic[LOG]):
         if args.DEBUG:
             self.log_iterations = 1
         else:
-            self.log_iterations = log_iterations
+            self.log_iterations = max(1, log_iterations)
         self.iteration = 0
 
     def reset(self):

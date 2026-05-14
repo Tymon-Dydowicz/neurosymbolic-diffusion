@@ -219,6 +219,13 @@ def get_mnist_op_dataloaders(
     full_train_dataset = datasets.MNIST(
         root="./data", train=True, download=True, transform=transform
     )
+
+    if count_train <= 0:
+        raise ValueError(f"count_train must be positive, got {count_train}")
+    if count_val < 0:
+        raise ValueError(f"count_val cannot be negative, got {count_val}")
+    if count_test <= 0:
+        raise ValueError(f"count_test must be positive, got {count_test}")
     
     # Split the training dataset into train and validation sets
     len_train = count_train * n_operands
