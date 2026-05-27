@@ -193,7 +193,8 @@ def get_mnist_op_dataloaders(
     op: Callable[[List[int]], int] = sum,
     seed: int = 42,
     shuffle: bool = True,
-) -> Tuple[DataLoader, DataLoader]:
+    allowed_digits: List[int] | None = None,
+) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Returns DataLoader instances for an operation on MNIST images.
 
@@ -214,35 +215,85 @@ def get_mnist_op_dataloaders(
         [transforms.ToTensor(), transforms.Normalize((0.1307,), (0.3081,))]
     )
 
-    # Load MNIST dataset
     # Load MNIST dataset for training
     full_train_dataset = datasets.MNIST(
         root="./data", train=True, download=True, transform=transform
     )
 
-    if count_train <= 0:
-        raise ValueError(f"count_train must be positive, got {count_train}")
+    if allowed_digits is not None:
+        mask = torch.zeros_like(full_train_dataset.targets, dtype=torch.bool)
+        for d in allowed_digits:
+            mask |= full_train_dataset.targets == d
+        full_train_dataset.data = full_train_dataset.data[mask]
+        full_train_dataset.targets = full_train_dataset.targets[mask]
+
+    if count_train < 0:
+        raise ValueError(f"count_train must be non-negative, got {count_train}")
     if count_val < 0:
         raise ValueError(f"count_val cannot be negative, got {count_val}")
-    if count_test <= 0:
-        raise ValueError(f"count_test must be positive, got {count_test}")
-    
-    # Split the training dataset into train and validation sets
+    if count_test < 0:
+        raise ValueError(f"count_test must be non-negative, got {count_test}")
+
+    max_trainval_samples = len(full_train_dataset) // n_operands
+    requested_trainval = count_train + count_val
+    if requested_trainval > max_trainval_samples:
+        print(
+            f"Requested train+val sample count ({requested_trainval}) exceeds the maximum number of samples "
+            f"that can be formed from the filtered training images ({len(full_train_dataset)} images -> {max_trainval_samples} samples)"
+        )
+        print("Capping train+val counts to fit available data. Ensuring train >= val where possible.")
+        effective_total = max_trainval_samples
+        capped_val = min(count_val, effective_total // 2)
+        count_val = capped_val
+        count_train = effective_total - count_val
+        if count_val == 0 and requested_trainval > 0:
+            count_train = min(effective_total, requested_trainval)
+
     len_train = count_train * n_operands
     len_val = count_val * n_operands
-    # For some Ns, it is possible that the dataset isn't divisible by n_operands
     rest = len(full_train_dataset) - len_train - len_val
     train_dataset, val_dataset, _ = torch.utils.data.random_split(
-        full_train_dataset, [len_train, len_val, rest], 
-        generator=torch.Generator().manual_seed(seed)
+        full_train_dataset, [len_train, len_val, rest],
+        generator=torch.Generator().manual_seed(seed),
     )
 
-    # Load MNIST dataset for testing
     test_dataset = datasets.MNIST(
         root="./data", train=False, download=True, transform=transform
     )
 
-    # Create operation datasets
+    if allowed_digits is not None:
+        mask_t = torch.zeros_like(test_dataset.targets, dtype=torch.bool)
+        for d in allowed_digits:
+            mask_t |= test_dataset.targets == d
+        test_dataset.data = test_dataset.data[mask_t]
+        test_dataset.targets = test_dataset.targets[mask_t]
+
+    max_count_test = len(test_dataset) // n_operands
+    if count_test > max_count_test:
+        print(
+            f"Requested count_test={count_test} is larger than the maximum test samples that can be formed "
+            f"from the filtered test images ({len(test_dataset)} images -> {max_count_test} samples)."
+        )
+        print(f"Capping count_test -> {max_count_test} to match available data.")
+        count_test = max_count_test
+
+    images_used_train = (count_train + count_val) * n_operands
+    images_used_test = count_test * n_operands
+    print("[MNIST OP DATASET SUMMARY]")
+    print(f"  allowed_digits = {allowed_digits}")
+    print(f"  n_operands = {n_operands}")
+    print(f"  filtered images (train set) = {len(full_train_dataset)}")
+    print(f"  filtered images (test set)  = {len(test_dataset)}")
+    print(f"  effective samples (per split): train={count_train}, val={count_val}, test={count_test}")
+    print(f"  images used (train+val) = {images_used_train} / {len(full_train_dataset)} ({images_used_train/len(full_train_dataset)*100:.2f}%)")
+    print(f"  images used (test)      = {images_used_test} / {len(test_dataset)} ({images_used_test/len(test_dataset)*100:.2f}%)")
+
+    if len(full_train_dataset) < (count_train * n_operands + count_val * n_operands):
+        raise ValueError(
+            f"Not enough training/validation samples available after filtering. \n"
+            f"Available: {len(full_train_dataset)}, required: {count_train*n_operands + count_val*n_operands}"
+        )
+
     op_train_dataset = MNISTOperationDataset(
         train_dataset, count_train, n_operands=n_operands, op=op, seed=seed
     )

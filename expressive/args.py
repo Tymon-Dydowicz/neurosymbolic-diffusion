@@ -67,6 +67,7 @@ class MNISTArguments(Tap):
     layers: int = 1
     embedding_size: int = 64
     config_file: str = None
+    allowed_digits: Optional[List[int]] = None
 
    
 

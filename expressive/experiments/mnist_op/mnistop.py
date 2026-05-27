@@ -16,6 +16,14 @@ from expressive.experiments.mnist_op.absorbing_mnist import (
     vector_to_base10,
 )
 from expressive.args import MNISTAbsorbingArguments
+import sys
+
+for i, a in enumerate(sys.argv):
+    if a.startswith("--allowed-digits"):
+        if a == "--allowed-digits":
+            sys.argv[i] = "--allowed_digits"
+        elif a.startswith("--allowed-digits="):
+            sys.argv[i] = a.replace("--allowed-digits=", "--allowed_digits=")
 from expressive.experiments.mnist_op.data import (
     create_nary_multidigit_operation,
     get_mnist_op_dataloaders,
@@ -103,6 +111,7 @@ def main():
         op=op,
         # This shuffle is very weird...
         shuffle=True,
+        allowed_digits=args.allowed_digits,
     )
 
     log_iterations = len(train_loader) // args.log_per_epoch
