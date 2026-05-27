@@ -113,12 +113,14 @@ class MNISTOperationDataset(Dataset):
         n_operands: int = 2,
         op: Callable[[List[int]], int] = lambda args: sum(args),
         seed: int = 42,
+        stratified: bool = False,
     ) -> None:
         self.dataset = dataset
         self.count = count
         self.n_operands = n_operands
         self.op = op
         self.seed = seed
+        self.stratified = stratified
 
         if count * n_operands > len(self.dataset):
             raise ValueError(
@@ -129,21 +131,74 @@ class MNISTOperationDataset(Dataset):
         self.indices_per_operand = self._generate_indices()
 
     def _generate_indices(self) -> List[torch.Tensor]:
-        """Generates random indices for each operand set."""
+        """Generates random indices for each operand set.
+
+        If `self.stratified` is True, attempt to balance class labels across the
+        combined pool and distribute indices to operands in a round-robin way so
+        each operand receives a balanced set of digits.
+        """
         # Set the seed for reproducibility
-        # But make sure not to override the seed of the rest of the program...
         gen = torch.Generator().manual_seed(self.seed)
-        perm = torch.randperm(len(self.dataset), generator=gen)
+
+        if not self.stratified:
+            perm = torch.randperm(len(self.dataset), generator=gen)
+            perms = []
+            for i in range(self.n_operands):
+                perms.append(perm[i * self.count : (i + 1) * self.count])
+
+            # Sanity checks
+            assert torch.unique(torch.cat(perms)).shape[0] == self.count * self.n_operands
+            assert len(perms) == self.n_operands
+            assert perms[0].shape[0] == self.count
+            return perms
+
+        # Stratified generation
+        # Build buckets of indices per class label
+        buckets: dict[int, list[int]] = {}
+        for idx in range(len(self.dataset)):
+            lbl = int(self.dataset[idx][1])
+            buckets.setdefault(lbl, []).append(idx)
+
+        # Shuffle each bucket independently
+        for lbl, lst in list(buckets.items()):
+            if len(lst) > 1:
+                perm_idx = torch.randperm(len(lst), generator=gen).tolist()
+                buckets[lbl] = [lst[i] for i in perm_idx]
+
+        required = self.count * self.n_operands
+
+        # Round-robin draw from buckets to build a combined balanced pool
+        combined: list[int] = []
+        pointers = {lbl: 0 for lbl in buckets.keys()}
+        labels_sorted = sorted(buckets.keys())
+        while len(combined) < required:
+            progressed = False
+            for lbl in labels_sorted:
+                p = pointers[lbl]
+                if p < len(buckets[lbl]):
+                    combined.append(buckets[lbl][p])
+                    pointers[lbl] += 1
+                    progressed = True
+                    if len(combined) >= required:
+                        break
+            if not progressed:
+                # All buckets exhausted but still need more; fall back to global permutation
+                all_idx = list(range(len(self.dataset)))
+                perm_all = torch.randperm(len(all_idx), generator=gen).tolist()
+                combined.extend([all_idx[i] for i in perm_all if all_idx[i] not in combined])
+                combined = combined[:required]
+                break
+
+        # Distribute indices to operands in round-robin fashion to maximise balance
         perms = []
-        for i in range(self.n_operands):
-            perms.append(perm[i*self.count: (i+1)*self.count])
+        for op_i in range(self.n_operands):
+            # take elements starting at op_i with step n_operands
+            chunk = combined[op_i:: self.n_operands][: self.count]
+            perms.append(torch.tensor(chunk, dtype=torch.long))
 
         # Sanity checks
-        # Ensure each datapoint is used exactly once
         assert torch.unique(torch.cat(perms)).shape[0] == self.count * self.n_operands
-        # Ensure the number of operands is correct
         assert len(perms) == self.n_operands
-        # Ensure the number of samples is correct
         assert perms[0].shape[0] == self.count
         return perms
 
@@ -194,6 +249,7 @@ def get_mnist_op_dataloaders(
     seed: int = 42,
     shuffle: bool = True,
     allowed_digits: List[int] | None = None,
+    stratified: bool = False,
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
     """
     Returns DataLoader instances for an operation on MNIST images.
@@ -295,13 +351,13 @@ def get_mnist_op_dataloaders(
         )
 
     op_train_dataset = MNISTOperationDataset(
-        train_dataset, count_train, n_operands=n_operands, op=op, seed=seed
+        train_dataset, count_train, n_operands=n_operands, op=op, seed=seed, stratified=stratified
     )
     op_val_dataset = MNISTOperationDataset(
-        val_dataset, count_val, n_operands=n_operands, op=op, seed=seed
+        val_dataset, count_val, n_operands=n_operands, op=op, seed=seed, stratified=stratified
     )
     op_test_dataset = MNISTOperationDataset(
-        test_dataset, count_test, n_operands=n_operands, op=op, seed=seed
+        test_dataset, count_test, n_operands=n_operands, op=op, seed=seed, stratified=stratified
     )
 
     # Create DataLoaders

@@ -68,6 +68,7 @@ class MNISTArguments(Tap):
     embedding_size: int = 64
     config_file: str = None
     allowed_digits: Optional[List[int]] = None
+    stratified: bool = False
 
    
 

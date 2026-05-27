@@ -112,6 +112,7 @@ def main():
         # This shuffle is very weird...
         shuffle=True,
         allowed_digits=args.allowed_digits,
+        stratified=args.stratified,
     )
 
     log_iterations = len(train_loader) // args.log_per_epoch
