@@ -69,6 +69,8 @@ class MNISTArguments(Tap):
     config_file: str = None
     allowed_digits: Optional[List[int]] = None
     stratified: bool = False
+    sanity_check_samples: int = 3
+    sanity_check_dir: str = "sanity_check"
 
    
 

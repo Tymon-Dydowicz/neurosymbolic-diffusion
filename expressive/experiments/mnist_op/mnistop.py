@@ -1,4 +1,5 @@
 from __future__ import annotations
+import json
 import math
 import os
 import time
@@ -9,6 +10,7 @@ from expressive.util import EarlyStopping, get_device
 from torch.utils.data import DataLoader
 import torch
 import wandb
+from PIL import Image
 
 from expressive.experiments.mnist_op.absorbing_mnist import (
     MNISTAddProblem,
@@ -37,6 +39,92 @@ from expressive.methods.logger import (
 )
 
 SWEEP = True
+
+
+def _digits_to_number(digits: list[int]) -> int:
+    out = 0
+    for d in digits:
+        out = out * 10 + int(d)
+    return out
+
+
+def _save_mnist_image(img_chw: torch.Tensor, out_path: str) -> None:
+    img = (img_chw.detach().cpu() * 0.3081 + 0.1307).clamp(0.0, 1.0)
+    arr = (img.squeeze(0).numpy() * 255.0).astype("uint8")
+    Image.fromarray(arr, mode="L").save(out_path)
+
+
+def export_sanity_check_samples(
+    split_name: str,
+    loader: DataLoader,
+    args: MNISTAbsorbingArguments,
+    out_root: str,
+    n_operands: int,
+    arity: int,
+    max_samples: int,
+) -> int:
+    if max_samples <= 0:
+        return 0
+
+    split_dir = os.path.join(out_root, split_name)
+    os.makedirs(split_dir, exist_ok=True)
+
+    exported = 0
+    for batch_idx, batch in enumerate(loader):
+        mn_digits = batch[:n_operands]
+        label_digits = batch[n_operands:-1]
+        label_target = batch[-1]
+
+        batch_size = label_target.shape[0]
+        for bi in range(batch_size):
+            if exported >= max_samples:
+                return exported
+
+            sample_dir = os.path.join(split_dir, f"sample_{exported:04d}")
+            os.makedirs(sample_dir, exist_ok=True)
+
+            operand_labels = [int(label_digits[j][bi].item()) for j in range(n_operands)]
+            grouped = []
+            group_len = n_operands // arity
+            for g in range(arity):
+                start = g * group_len
+                end = (g + 1) * group_len
+                grouped.append(_digits_to_number(operand_labels[start:end]))
+
+            target_int = int(label_target[bi].item())
+            target_digits = vector_to_base10(
+                label_target[bi : bi + 1].to(torch.long), args.N + 1
+            )[0].detach().cpu().tolist()
+
+            for j in range(n_operands):
+                img = mn_digits[j][bi]
+                d = operand_labels[j]
+                _save_mnist_image(
+                    img,
+                    os.path.join(sample_dir, f"operand_{j:02d}_digit_{d}.png"),
+                )
+
+            info = {
+                "split": split_name,
+                "batch_index": batch_idx,
+                "batch_item_index": bi,
+                "n_operands": n_operands,
+                "arity": arity,
+                "digits_per_number": args.N,
+                "operand_digit_labels": operand_labels,
+                "grouped_numbers": grouped,
+                "target_integer": target_int,
+                "target_digits_passed_to_model": target_digits,
+                "operation": args.op,
+                "allowed_digits": args.allowed_digits,
+                "stratified": args.stratified,
+            }
+            with open(os.path.join(sample_dir, "info.json"), "w", encoding="utf-8") as f:
+                json.dump(info, f, indent=2)
+
+            exported += 1
+
+    return exported
 
 
 def test(
@@ -114,6 +202,42 @@ def main():
         allowed_digits=args.allowed_digits,
         stratified=args.stratified,
     )
+
+    sanity_root = os.path.join(args.sanity_check_dir, run.id)
+    if args.sanity_check_samples > 0:
+        print("----- EXPORTING SANITY CHECK SAMPLES -----")
+        print(f"Saving sanity-check samples to: {sanity_root}")
+        n_train = export_sanity_check_samples(
+            "train",
+            train_loader,
+            args,
+            sanity_root,
+            n_operands,
+            arity,
+            args.sanity_check_samples,
+        )
+        n_val = export_sanity_check_samples(
+            "val",
+            val_loader,
+            args,
+            sanity_root,
+            n_operands,
+            arity,
+            args.sanity_check_samples,
+        )
+        n_test = export_sanity_check_samples(
+            "test",
+            test_loader,
+            args,
+            sanity_root,
+            n_operands,
+            arity,
+            args.sanity_check_samples,
+        )
+        print(
+            f"Sanity-check export complete: train={n_train}, val={n_val}, test={n_test} samples "
+            f"(per split requested={args.sanity_check_samples})"
+        )
 
     log_iterations = len(train_loader) // args.log_per_epoch
 
